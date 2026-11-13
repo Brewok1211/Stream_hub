@@ -1,9 +1,9 @@
 {
-    "name": "Berbagi Itu Indah",
-    "description": "Cloudstream extensions collection",
-    "iconUrl": "https://raw.githubusercontent.com/MesraGames/Mesra_Stream/refs/heads/main/Raven_X%20Logo.png",
-    "manifestVersion": 1,
-    "pluginLists": [
-      "https://raw.githubusercontent.com/MesraGames/Mesra_Stream/builds/plugins.json"
-    ]
+  "name": "Berbagi Itu Indah",
+  "description": "Cloudstream extensions collection",
+  "iconUrl": "https://raw.githubusercontent.com/Brewok1211/Stream_hub/main/Raven_Logo.png",
+  "manifestVersion": 1,
+  "pluginlists": [
+    "https://raw.githubusercontent.com/Brewok1211/Stream_hub/builds/plugins.json"
+  ]
 }
