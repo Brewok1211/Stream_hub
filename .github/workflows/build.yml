@@ -33,20 +33,10 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - name: Detect Gradle Version
-        id: gradle-ver
-        run: |
-          VER=$(grep -oE 'gradle-[0-9]+(\.[0-9]+)+' src/gradle/wrapper/gradle-wrapper.properties 2>/dev/null | head -n1 | sed 's/gradle-//')
-          if [ -z "$VER" ]; then
-            VER="9.1.1"
-          fi
-          echo "Detected Gradle version: $VER"
-          echo "version=$VER" >> "$GITHUB_OUTPUT"
-
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: ${{ steps.gradle-ver.outputs.version }}
+          gradle-version: 9.3.1
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
