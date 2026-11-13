@@ -32,10 +32,9 @@ import com.lagradost.cloudstream3.newSubtitleFile
 import com.lagradost.cloudstream3.newTvSeriesLoadResponse
 import com.lagradost.cloudstream3.newTvSeriesSearchResponse
 import com.lagradost.cloudstream3.toNewSearchResponseList
+import com.lagradost.cloudstream3.utils.*
 import com.lagradost.cloudstream3.utils.AppUtils.parseJson
 import com.lagradost.cloudstream3.utils.AppUtils.toJson
-import com.lagradost.cloudstream3.utils.ExtractorLink
-import com.lagradost.cloudstream3.utils.M3u8Helper.Companion.generateM3u8
 import kotlinx.coroutines.delay
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
@@ -352,7 +351,6 @@ class IdlixProvider : MainAPI() {
         val contentType = parsed.type
         val slug = parsed.slug
 
-        // Menyusun referer halaman tonton asli
         val pageReferer = if (!slug.isNullOrBlank()) {
             if (contentType == "movie") "$mainUrl/movie/$slug" else "$mainUrl/series/$slug"
         } else {
@@ -442,7 +440,7 @@ class IdlixProvider : MainAPI() {
         sessionCookies.putAll(playResponse.cookies)
         sessionCookies.putAll(claimRaw.cookies)
 
-        // 6. Redeem Token Resmi dengan Parameter "mode": "browser"
+        // 6. Redeem Token Resmi
         val redeemUrl = "$mainUrl/api/watch/session/redeem"
         val redeemHeaders = baseHeaders.toMutableMap().apply {
             put("Content-Type", "application/json")
@@ -510,7 +508,7 @@ class IdlixProvider : MainAPI() {
                             "$basePath/$trimmed"
                         }
 
-                        // Menempelkan token ?t=... ke playlist anak agar tidak terkena HTTP 403 (Error 2004)
+                        // Menempelkan token ?t=... ke playlist anak agar tidak 403 (Error 2004)
                         val fullChildUrl = if (query.isNotBlank() && !baseChild.contains("?")) {
                             "$baseChild?$query"
                         } else {
@@ -518,29 +516,31 @@ class IdlixProvider : MainAPI() {
                         }
 
                         callback(
-                            ExtractorLink(
+                            newExtractorLink(
                                 source = name,
                                 name = if (currentQuality > 0) "$name ${currentQuality}p" else name,
                                 url = fullChildUrl,
-                                referer = pageReferer,
-                                quality = currentQuality,
-                                isM3u8 = true,
-                                headers = videoHeaders
-                            )
+                                type = ExtractorLinkType.M3U8
+                            ) {
+                                this.referer = pageReferer
+                                this.quality = currentQuality
+                                this.headers = videoHeaders
+                            }
                         )
                     }
                 }
             } else {
                 callback(
-                    ExtractorLink(
+                    newExtractorLink(
                         source = name,
                         name = name,
                         url = streamUrl,
-                        referer = pageReferer,
-                        quality = 0,
-                        isM3u8 = true,
-                        headers = videoHeaders
-                    )
+                        type = ExtractorLinkType.M3U8
+                    ) {
+                        this.referer = pageReferer
+                        this.quality = 0
+                        this.headers = videoHeaders
+                    }
                 )
             }
         } catch (e: Exception) {
