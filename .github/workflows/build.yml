@@ -32,7 +32,21 @@ jobs:
         with:
           distribution: temurin
           java-version: 21
-          cache: 'gradle'
+
+      - name: Detect Gradle Version
+        id: gradle-ver
+        run: |
+          VER=$(grep -oE 'gradle-[0-9]+(\.[0-9]+)+' src/gradle/wrapper/gradle-wrapper.properties 2>/dev/null | head -n1 | sed 's/gradle-//')
+          if [ -z "$VER" ]; then
+            VER="9.1.1"
+          fi
+          echo "Detected Gradle version: $VER"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: ${{ steps.gradle-ver.outputs.version }}
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v4
@@ -45,8 +59,7 @@ jobs:
       - name: Build Plugins
         run: |
           cd src
-          chmod +x gradlew
-          ./gradlew make makePluginsJson
+          gradle make makePluginsJson
 
       - name: Collect and Push Builds
         run: |
