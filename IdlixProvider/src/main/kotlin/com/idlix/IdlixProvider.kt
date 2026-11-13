@@ -481,20 +481,70 @@ class IdlixProvider : MainAPI() {
 
         val videoHeaders = mapOf(
             "User-Agent" to defaultUserAgent,
-            "Referer" to "$mainUrl/",
+            "Referer" to pageReferer,
             "Origin" to mainUrl,
             "Accept" to "*/*"
         )
 
         try {
-            generateM3u8(
-                source = name,
-                streamUrl = streamUrl,
-                referer = "$mainUrl/",
-                headers = videoHeaders
-            ).forEach(callback)
+            val masterResponse = app.get(streamUrl, headers = videoHeaders)
+            val masterText = masterResponse.text
+            val query = streamUrl.substringAfter("?", "")
+
+            if (masterText.contains("#EXT-X-STREAM-INF:")) {
+                val lines = masterText.lines()
+                var currentQuality = 0
+
+                for (line in lines) {
+                    val trimmed = line.trim()
+                    if (trimmed.startsWith("#EXT-X-STREAM-INF:")) {
+                        val res = Regex("RESOLUTION=\\d+x(\\d+)").find(trimmed)?.groupValues?.get(1)?.toIntOrNull()
+                        currentQuality = res ?: 0
+                    } else if (trimmed.isNotBlank() && !trimmed.startsWith("#")) {
+                        val baseChild = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+                            trimmed
+                        } else if (trimmed.startsWith("/")) {
+                            "https://e2e.majorplay.net$trimmed"
+                        } else {
+                            val basePath = streamUrl.substringBefore("?").substringBeforeLast("/")
+                            "$basePath/$trimmed"
+                        }
+
+                        // Menempelkan token ?t=... ke playlist anak agar tidak terkena HTTP 403 (Error 2004)
+                        val fullChildUrl = if (query.isNotBlank() && !baseChild.contains("?")) {
+                            "$baseChild?$query"
+                        } else {
+                            baseChild
+                        }
+
+                        callback(
+                            ExtractorLink(
+                                source = name,
+                                name = if (currentQuality > 0) "$name ${currentQuality}p" else name,
+                                url = fullChildUrl,
+                                referer = pageReferer,
+                                quality = currentQuality,
+                                isM3u8 = true,
+                                headers = videoHeaders
+                            )
+                        )
+                    }
+                }
+            } else {
+                callback(
+                    ExtractorLink(
+                        source = name,
+                        name = name,
+                        url = streamUrl,
+                        referer = pageReferer,
+                        quality = 0,
+                        isM3u8 = true,
+                        headers = videoHeaders
+                    )
+                )
+            }
         } catch (e: Exception) {
-            throw ErrorLoadingException("M3U8_GENERATE_ERR (${e.message}): $streamUrl")
+            throw ErrorLoadingException("M3U8_PARSE_ERR (${e.message}): $streamUrl")
         }
 
         iframeResponse.subtitles.forEach { subtitle ->
