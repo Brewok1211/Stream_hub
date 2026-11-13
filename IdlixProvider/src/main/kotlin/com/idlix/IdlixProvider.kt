@@ -364,20 +364,28 @@ class IdlixProvider : MainAPI() {
             elapsed++
         }
 
+                delay(500)
+
         val claimJson = """
     {
         "gateToken": "${playInfo.gateToken}"
     }
     """.trimIndent()
 
-        val claimApi = app.post(
+        val claimRaw = app.post(
             "$mainUrl/api/watch/session/claim",
             headers = headers,
             cookies = cookies,
             requestBody = claimJson.toRequestBody(
                 "application/json".toMediaType()
             )
-        ).parsedSafe<RedeemRes>() ?: return false
+        )
+        val claimText = claimRaw.text
+        val claimApi = try {
+            parseJson<RedeemRes>(claimText)
+        } catch (e: Exception) {
+            throw ErrorLoadingException("CLAIM [${claimRaw.code}] (${e.message}): ${claimText.take(350)}")
+        }
 
         val redeemJson = """
     {
@@ -387,25 +395,30 @@ class IdlixProvider : MainAPI() {
 
         val fullRedeemUrl = resolveUrl(claimApi.redeemUrl)
 
-        val iframeResponse = app.post(
+        val redeemRaw = app.post(
             fullRedeemUrl,
             headers = headers,
             cookies = cookies,
             requestBody = redeemJson.toRequestBody(
                 "application/json".toMediaType()
             )
-        ).parsedSafe<Iframe>() ?: return false
+        )
+        val redeemText = redeemRaw.text
+        val iframeResponse = try {
+            parseJson<Iframe>(redeemText)
+        } catch (e: Exception) {
+            throw ErrorLoadingException("REDEEM ($fullRedeemUrl) [${redeemRaw.code}] (${e.message}): ${redeemText.take(350)}")
+        }
 
-        iframeResponse.url
-            ?.takeIf { it.isNotBlank() }
-            ?.let { rawStreamUrl ->
-                val streamUrl = resolveUrl(rawStreamUrl)
-                generateM3u8(
-                    name,
-                    streamUrl,
-                    mainUrl
-                ).forEach(callback)
-            }
+        val rawStreamUrl = iframeResponse.url?.takeIf { it.isNotBlank() }
+            ?: throw ErrorLoadingException("EMPTY URL ($fullRedeemUrl) [${redeemRaw.code}]: ${redeemText.take(350)}")
+
+        val streamUrl = resolveUrl(rawStreamUrl)
+        generateM3u8(
+            name,
+            streamUrl,
+            mainUrl
+        ).forEach(callback)
 
         iframeResponse.subtitles.forEach { subtitle ->
             if (subtitle.path.isNotBlank()) {
@@ -419,7 +432,7 @@ class IdlixProvider : MainAPI() {
         }
 
         return true
-    }
+
 
     private fun resolveUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()
