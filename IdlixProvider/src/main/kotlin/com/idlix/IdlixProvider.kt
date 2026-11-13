@@ -54,6 +54,8 @@ class IdlixProvider : MainAPI() {
         TvType.AsianDrama
     )
 
+    private val defaultUserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36"
+
     override val mainPage = mainPageOf(
         "$mainUrl/api/movies?page=%d&limit=36&sort=createdAt" to "Latest Movies",
         "$mainUrl/api/series?page=%d&limit=36&sort=createdAt" to "Latest TV Series",
@@ -346,19 +348,20 @@ class IdlixProvider : MainAPI() {
         val contentId = parsed.id
         val contentType = parsed.type
 
-        val headers = mapOf(
+        val standardHeaders = mapOf(
+            "User-Agent" to defaultUserAgent,
             "Referer" to "$mainUrl/",
             "Origin" to mainUrl,
             "Accept" to "*/*",
             "Content-Type" to "application/json"
         )
 
-        // 1. Analytics Tracking Ping (Langkah wajib anti-bot sebelum request play-info/claim)
+        // 1. Analytics Tracking Ping
         try {
             val trackPayload = """{"id":"$contentId","type":"$contentType"}"""
             app.post(
                 "$mainUrl/api/views/track",
-                headers = headers,
+                headers = standardHeaders,
                 requestBody = trackPayload.toRequestBody("application/json".toMediaType())
             )
         } catch (e: Exception) {
@@ -367,7 +370,7 @@ class IdlixProvider : MainAPI() {
 
         // 2. Request play-info
         val playInfoUrl = "$mainUrl/api/watch/play-info/$contentType/$contentId"
-        val playResponse = app.get(playInfoUrl, headers = headers)
+        val playResponse = app.get(playInfoUrl, headers = standardHeaders)
 
         if (playResponse.code != 200) {
             throw ErrorLoadingException("PLAY_INFO_ERR [${playResponse.code}] ($playInfoUrl): ${playResponse.text.take(300)}")
@@ -390,13 +393,13 @@ class IdlixProvider : MainAPI() {
             delay(1000)
             elapsed++
         }
-        delay(1200) // Buffer 1.2 detik agar server clock benar-benar lewat dari unlockAt
+        delay(1200)
 
         // 4. Claim Session Token
         val claimJson = """{"gateToken":"$gateToken"}"""
         val claimRaw = app.post(
             "$mainUrl/api/watch/session/claim",
-            headers = headers,
+            headers = standardHeaders,
             cookies = playResponse.cookies,
             requestBody = claimJson.toRequestBody("application/json".toMediaType())
         )
@@ -417,71 +420,93 @@ class IdlixProvider : MainAPI() {
             throw ErrorLoadingException("CLAIM_TOKEN_EMPTY: $claimText")
         }
 
-        val redeemUrlRaw = claimApi.redeemUrl
-        if (redeemUrlRaw.isNullOrBlank()) {
-            throw ErrorLoadingException("REDEEM_URL_EMPTY: $claimText")
-        }
-
-        // 5. Gabungkan seluruh Cookie
+        // 5. Gabungkan Cookie
         val sessionCookies = mutableMapOf<String, String>()
         sessionCookies.putAll(playResponse.cookies)
         sessionCookies.putAll(claimRaw.cookies)
 
-        // 6. Siapkan Payload & Daftar Kandidat Host Redeem (Idlix API vs Pentos/MajorPlay CDN)
+        // 6. Target Endpoint Tunggal yang Terbukti Benar
+        val redeemUrl = "$mainUrl/api/watch/session/redeem"
         val videoId = claimApi.videoId
-        val candidateBodies = listOfNotNull(
-            if (!videoId.isNullOrBlank()) """{"claim":"$claimToken","videoId":"$videoId"}""" else null,
-            """{"claim":"$claimToken"}"""
-        ).distinct()
+        val renewalToken = claimApi.renewalToken
 
-        val candidateUrls = getRedeemCandidates(redeemUrlRaw)
+        // Daftar kombinasi payload cerdas yang akan diuji secara instan
+        val candidatePayloads = listOfNotNull(
+            // Kombinasi 1: claim + renewalToken + videoId
+            if (!renewalToken.isNullOrBlank() && !videoId.isNullOrBlank()) {
+                "P1" to """{"claim":"$claimToken","renewalToken":"$renewalToken","videoId":"$videoId"}"""
+            } else null,
+            // Kombinasi 2: claim + renewalToken
+            if (!renewalToken.isNullOrBlank()) {
+                "P2" to """{"claim":"$claimToken","renewalToken":"$renewalToken"}"""
+            } else null,
+            // Kombinasi 3: claim + videoId
+            if (!videoId.isNullOrBlank()) {
+                "P3" to """{"claim":"$claimToken","videoId":"$videoId"}"""
+            } else null,
+            // Kombinasi 4: claim saja
+            "P4" to """{"claim":"$claimToken"}"""
+        )
 
         var finalIframeResponse: Iframe? = null
         val failureLogs = mutableListOf<String>()
 
-        // Mencoba setiap kombinasi target host dan payload
-        for (candidateUrl in candidateUrls) {
-            for (bodyJson in candidateBodies) {
-                val candidateHeaders = headers.toMutableMap()
-                if (candidateUrl.contains("majorplay.net")) {
-                    candidateHeaders["Referer"] = "https://majorplay.net/"
-                    candidateHeaders["Origin"] = "https://majorplay.net"
-                }
-
-                val redeemRaw = try {
-                    app.post(
-                        candidateUrl,
-                        headers = candidateHeaders,
-                        cookies = sessionCookies,
-                        requestBody = bodyJson.toRequestBody("application/json".toMediaType())
-                    )
-                } catch (e: Exception) {
-                    failureLogs.add("FAILED $candidateUrl: ${e.message}")
-                    continue
-                }
-
-                val redeemText = redeemRaw.text
-                if (redeemRaw.code == 200) {
-                    val parsedIframe = try {
-                        parseJson<Iframe>(redeemText)
-                    } catch (_: Exception) {
-                        null
-                    }
-                    if (parsedIframe?.url?.isNotBlank() == true) {
-                        finalIframeResponse = parsedIframe
-                        break
-                    }
-                } else {
-                    failureLogs.add("[$candidateUrl] (${redeemRaw.code}): ${redeemText.take(120)}")
-                }
+        for ((tag, bodyJson) in candidatePayloads) {
+            val redeemRaw = try {
+                app.post(
+                    redeemUrl,
+                    headers = standardHeaders,
+                    cookies = sessionCookies,
+                    requestBody = bodyJson.toRequestBody("application/json".toMediaType())
+                )
+            } catch (e: Exception) {
+                failureLogs.add("[$tag] EXCEPTION: ${e.message}")
+                continue
             }
-            if (finalIframeResponse != null) break
+
+            val redeemText = redeemRaw.text
+            if (redeemRaw.code == 200) {
+                val parsedIframe = try {
+                    parseJson<Iframe>(redeemText)
+                } catch (_: Exception) {
+                    null
+                }
+                if (parsedIframe?.url?.isNotBlank() == true) {
+                    finalIframeResponse = parsedIframe
+                    break
+                }
+            } else {
+                failureLogs.add("[$tag] (${redeemRaw.code}): ${redeemText.take(120)}")
+            }
+        }
+
+        // Jika 4 kombinasi di atas belum tembus, coba via Authorization Header
+        if (finalIframeResponse == null) {
+            val authHeaders = standardHeaders.toMutableMap()
+            authHeaders["Authorization"] = "Bearer $claimToken"
+            val authRedeemRaw = try {
+                app.post(
+                    redeemUrl,
+                    headers = authHeaders,
+                    cookies = sessionCookies,
+                    requestBody = """{}""".toRequestBody("application/json".toMediaType())
+                )
+            } catch (e: Exception) {
+                null
+            }
+            if (authRedeemRaw?.code == 200) {
+                finalIframeResponse = try {
+                    parseJson<Iframe>(authRedeemRaw.text)
+                } catch (_: Exception) {
+                    null
+                }
+            } else if (authRedeemRaw != null) {
+                failureLogs.add("[AUTH] (${authRedeemRaw.code}): ${authRedeemRaw.text.take(120)}")
+            }
         }
 
         val iframeResponse = finalIframeResponse ?: throw ErrorLoadingException(
-            "REDEEM_ALL_FAILED:\n" +
-            "LOGS:\n" + failureLogs.joinToString("\n") + "\n" +
-            "CLAIM: $claimText"
+            "REDEEM_FAILED:\n" + failureLogs.joinToString("\n")
         )
 
         val rawStreamUrl = iframeResponse.url?.takeIf { it.isNotBlank() }
@@ -512,28 +537,6 @@ class IdlixProvider : MainAPI() {
         }
 
         return true
-    }
-
-    private fun getRedeemCandidates(rawUrl: String): List<String> {
-        val trimmed = rawUrl.trim()
-        val list = mutableListOf<String>()
-
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            list.add(trimmed)
-            return list
-        }
-
-        val path = if (trimmed.startsWith("/")) trimmed else "/$trimmed"
-
-        // 1. Host API Idlix (/api/watch/...)
-        list.add("$mainUrl/api$path")
-        // 2. Host Asli Idlix tanpa prefix /api
-        list.add("$mainUrl$path")
-        // 3. Host Penyedia Player Pentos (MajorPlay)
-        list.add("https://majorplay.net$path")
-        list.add("https://e2e.majorplay.net$path")
-
-        return list.distinct()
     }
 
     private fun resolveUrl(rawUrl: String): String {
@@ -671,6 +674,7 @@ data class RedeemRes(
     @JsonProperty("durationSec") val durationSec: Long? = null,
     @JsonProperty("viewerTier") val viewerTier: String? = null,
     @JsonProperty("maxHeight") val maxHeight: Long? = null,
+    @JsonProperty("renewalToken") val renewalToken: String? = null,
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
