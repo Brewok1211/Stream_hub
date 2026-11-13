@@ -9,7 +9,7 @@
             "Miku"
         ],
         "description": "Idlix \u2014 Streaming Movie and TV Series",
-        "fileSize": 51793,
+        "fileSize": 51900,
         "repositoryUrl": "https://github.com/Brewok1211/Stream_hub",
         "language": "id",
         "tvTypes": [
@@ -19,9 +19,9 @@
         ],
         "iconUrl": "https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://idlixian.com&size=16",
         "apiVersion": 1,
-        "fileHash": "sha256-8a9cc71703ebfb67e01f0750205e9f39c7b050cfb343dc35778727780d85e548",
-        "jarFileSize": 209402,
+        "fileHash": "sha256-9205c6225c4af42f04a799675133b7a7097ed3b4bb34909692d552ee40e180f0",
+        "jarFileSize": 209635,
         "jarUrl": "https://raw.githubusercontent.com/Brewok1211/Stream_hub/builds/IdlixProvider.jar",
-        "jarHash": "sha256-e8e9953526a037b1d4f584d70ec1c2d5070291511a535ab40e01f1ee34d72297"
+        "jarHash": "sha256-db4df739deb99fb430bc9feab2eb0e655cecdadb72d231b26fabeabc72412577"
     }
 ]
