@@ -1,9 +1,8 @@
 {
-  "name": "Berbagi Itu Indah",
-  "description": "Cloudstream extensions collection",
-  "iconUrl": "https://raw.githubusercontent.com/Brewok1211/Stream_hub/main/Raven_Logo.png",
+  "name": "Stream Hub Idlix",
+  "description": "Custom Idlix extension",
   "manifestVersion": 1,
-  "pluginlists": [
+  "pluginLists": [
     "https://raw.githubusercontent.com/Brewok1211/Stream_hub/builds/plugins.json"
   ]
 }
