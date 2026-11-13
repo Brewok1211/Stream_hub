@@ -224,7 +224,8 @@ class IdlixProvider : MainAPI() {
                     newEpisode(
                         LoadData(
                             id = epId,
-                            type = "episode"
+                            type = "episode",
+                            slug = data.slug
                         ).toJson()
                     ) {
                         this.name = ep.name
@@ -257,7 +258,8 @@ class IdlixProvider : MainAPI() {
                         newEpisode(
                             LoadData(
                                 id = epId,
-                                type = "episode"
+                                type = "episode",
+                                slug = data.slug
                             ).toJson()
                         ) {
                             this.name = ep.name
@@ -295,7 +297,8 @@ class IdlixProvider : MainAPI() {
                 TvType.Movie,
                 LoadData(
                     id = movieId,
-                    type = "movie"
+                    type = "movie",
+                    slug = data.slug
                 ).toJson()
             ) {
                 this.posterUrl = poster
@@ -347,30 +350,40 @@ class IdlixProvider : MainAPI() {
 
         val contentId = parsed.id
         val contentType = parsed.type
+        val slug = parsed.slug
 
-        val standardHeaders = mapOf(
+        // Menyusun referer halaman tonton asli
+        val pageReferer = if (!slug.isNullOrBlank()) {
+            if (contentType == "movie") "$mainUrl/movie/$slug" else "$mainUrl/series/$slug"
+        } else {
+            "$mainUrl/"
+        }
+
+        val baseHeaders = mapOf(
             "User-Agent" to defaultUserAgent,
-            "Referer" to "$mainUrl/",
+            "Referer" to pageReferer,
             "Origin" to mainUrl,
-            "Accept" to "*/*",
-            "Content-Type" to "application/json"
+            "Accept" to "*/*"
         )
 
         // 1. Analytics Tracking Ping
         try {
+            val trackHeaders = baseHeaders.toMutableMap().apply {
+                put("Content-Type", "application/json")
+            }
             val trackPayload = """{"id":"$contentId","type":"$contentType"}"""
             app.post(
                 "$mainUrl/api/views/track",
-                headers = standardHeaders,
+                headers = trackHeaders,
                 requestBody = trackPayload.toRequestBody("application/json".toMediaType())
             )
         } catch (e: Exception) {
-            Log.d(name, "Tracking ping failed/ignored: ${e.message}")
+            Log.d(name, "Tracking ping ignored: ${e.message}")
         }
 
         // 2. Request play-info
         val playInfoUrl = "$mainUrl/api/watch/play-info/$contentType/$contentId"
-        val playResponse = app.get(playInfoUrl, headers = standardHeaders)
+        val playResponse = app.get(playInfoUrl, headers = baseHeaders)
 
         if (playResponse.code != 200) {
             throw ErrorLoadingException("PLAY_INFO_ERR [${playResponse.code}] ($playInfoUrl): ${playResponse.text.take(300)}")
@@ -397,9 +410,13 @@ class IdlixProvider : MainAPI() {
 
         // 4. Claim Session Token
         val claimJson = """{"gateToken":"$gateToken"}"""
+        val claimHeaders = baseHeaders.toMutableMap().apply {
+            put("Content-Type", "application/json")
+        }
+
         val claimRaw = app.post(
             "$mainUrl/api/watch/session/claim",
-            headers = standardHeaders,
+            headers = claimHeaders,
             cookies = playResponse.cookies,
             requestBody = claimJson.toRequestBody("application/json".toMediaType())
         )
@@ -420,97 +437,45 @@ class IdlixProvider : MainAPI() {
             throw ErrorLoadingException("CLAIM_TOKEN_EMPTY: $claimText")
         }
 
-        // 5. Gabungkan Cookie
+        // 5. Gabungkan Cookie Sesi
         val sessionCookies = mutableMapOf<String, String>()
         sessionCookies.putAll(playResponse.cookies)
         sessionCookies.putAll(claimRaw.cookies)
 
-        // 6. Target Endpoint Tunggal yang Terbukti Benar
+        // 6. Redeem Token Resmi dengan Parameter "mode": "browser"
         val redeemUrl = "$mainUrl/api/watch/session/redeem"
-        val videoId = claimApi.videoId
-        val renewalToken = claimApi.renewalToken
-
-        // Daftar kombinasi payload cerdas yang akan diuji secara instan
-        val candidatePayloads = listOfNotNull(
-            // Kombinasi 1: claim + renewalToken + videoId
-            if (!renewalToken.isNullOrBlank() && !videoId.isNullOrBlank()) {
-                "P1" to """{"claim":"$claimToken","renewalToken":"$renewalToken","videoId":"$videoId"}"""
-            } else null,
-            // Kombinasi 2: claim + renewalToken
-            if (!renewalToken.isNullOrBlank()) {
-                "P2" to """{"claim":"$claimToken","renewalToken":"$renewalToken"}"""
-            } else null,
-            // Kombinasi 3: claim + videoId
-            if (!videoId.isNullOrBlank()) {
-                "P3" to """{"claim":"$claimToken","videoId":"$videoId"}"""
-            } else null,
-            // Kombinasi 4: claim saja
-            "P4" to """{"claim":"$claimToken"}"""
-        )
-
-        var finalIframeResponse: Iframe? = null
-        val failureLogs = mutableListOf<String>()
-
-        for ((tag, bodyJson) in candidatePayloads) {
-            val redeemRaw = try {
-                app.post(
-                    redeemUrl,
-                    headers = standardHeaders,
-                    cookies = sessionCookies,
-                    requestBody = bodyJson.toRequestBody("application/json".toMediaType())
-                )
-            } catch (e: Exception) {
-                failureLogs.add("[$tag] EXCEPTION: ${e.message}")
-                continue
-            }
-
-            val redeemText = redeemRaw.text
-            if (redeemRaw.code == 200) {
-                val parsedIframe = try {
-                    parseJson<Iframe>(redeemText)
-                } catch (_: Exception) {
-                    null
-                }
-                if (parsedIframe?.url?.isNotBlank() == true) {
-                    finalIframeResponse = parsedIframe
-                    break
-                }
-            } else {
-                failureLogs.add("[$tag] (${redeemRaw.code}): ${redeemText.take(120)}")
-            }
+        val redeemHeaders = baseHeaders.toMutableMap().apply {
+            put("Content-Type", "application/json")
         }
 
-        // Jika 4 kombinasi di atas belum tembus, coba via Authorization Header
-        if (finalIframeResponse == null) {
-            val authHeaders = standardHeaders.toMutableMap()
-            authHeaders["Authorization"] = "Bearer $claimToken"
-            val authRedeemRaw = try {
-                app.post(
-                    redeemUrl,
-                    headers = authHeaders,
-                    cookies = sessionCookies,
-                    requestBody = """{}""".toRequestBody("application/json".toMediaType())
-                )
-            } catch (e: Exception) {
-                null
-            }
-            if (authRedeemRaw?.code == 200) {
-                finalIframeResponse = try {
-                    parseJson<Iframe>(authRedeemRaw.text)
-                } catch (_: Exception) {
-                    null
-                }
-            } else if (authRedeemRaw != null) {
-                failureLogs.add("[AUTH] (${authRedeemRaw.code}): ${authRedeemRaw.text.take(120)}")
-            }
+        val redeemJson = """{"claim":"$claimToken","mode":"browser"}"""
+
+        val redeemRaw = app.post(
+            redeemUrl,
+            headers = redeemHeaders,
+            cookies = sessionCookies,
+            requestBody = redeemJson.toRequestBody("application/json".toMediaType())
+        )
+        val redeemText = redeemRaw.text
+
+        if (redeemRaw.code != 200) {
+            throw ErrorLoadingException(
+                "REDEEM_ERR [${redeemRaw.code}]: ${redeemText.take(350)}\n" +
+                "URL: $redeemUrl\n" +
+                "PAYLOAD: $redeemJson\n" +
+                "REF: $pageReferer\n" +
+                "COOKIES: $sessionCookies"
+            )
         }
 
-        val iframeResponse = finalIframeResponse ?: throw ErrorLoadingException(
-            "REDEEM_FAILED:\n" + failureLogs.joinToString("\n")
-        )
+        val iframeResponse = try {
+            parseJson<Iframe>(redeemText)
+        } catch (e: Exception) {
+            throw ErrorLoadingException("REDEEM_PARSE_ERR (${e.message}): $redeemText")
+        }
 
         val rawStreamUrl = iframeResponse.url?.takeIf { it.isNotBlank() }
-            ?: throw ErrorLoadingException("STREAM_URL_BLANK: parsed Iframe url empty")
+            ?: throw ErrorLoadingException("STREAM_URL_BLANK: $redeemText")
 
         val streamUrl = resolveUrl(rawStreamUrl)
 
@@ -654,7 +619,8 @@ data class EpisodeData(
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class LoadData(
     @JsonProperty("id") val id: String,
-    @JsonProperty("type") val type: String
+    @JsonProperty("type") val type: String,
+    @JsonProperty("slug") val slug: String? = null
 )
 
 @JsonIgnoreProperties(ignoreUnknown = true)
