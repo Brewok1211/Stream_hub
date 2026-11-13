@@ -431,8 +431,8 @@ class IdlixProvider : MainAPI() {
             }
         }
 
-        return true
-
+                return true
+    }
 
     private fun resolveUrl(rawUrl: String): String {
         val trimmed = rawUrl.trim()
@@ -444,6 +444,7 @@ class IdlixProvider : MainAPI() {
         }
     }
 }
+
 
 fun getSearchQuality(check: String?): SearchQuality? {
     val s = check ?: return null
