@@ -393,8 +393,8 @@ class IdlixProvider : MainAPI() {
     }
     """.trimIndent()
 
-        val fullRedeemUrl = resolveUrl(claimApi.redeemUrl)
-
+        val fullRedeemUrl = resolveRedeemUrl(claimApi.redeemUrl)
+                
         val redeemRaw = app.post(
             fullRedeemUrl,
             headers = headers,
@@ -431,7 +431,15 @@ class IdlixProvider : MainAPI() {
             }
         }
 
-                return true
+                        return true
+    }
+
+    private fun resolveRedeemUrl(rawUrl: String): String {
+        val trimmed = rawUrl.trim()
+        if (trimmed.startsWith("/watch/")) {
+            return "$mainUrl/api$trimmed"
+        }
+        return resolveUrl(trimmed)
     }
 
     private fun resolveUrl(rawUrl: String): String {
@@ -444,6 +452,7 @@ class IdlixProvider : MainAPI() {
         }
     }
 }
+
 
 
 fun getSearchQuality(check: String?): SearchQuality? {
