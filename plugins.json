@@ -1,0 +1,27 @@
+[
+    {
+        "url": "https://raw.githubusercontent.com/Brewok1211/Stream_hub/builds/IdlixProvider.cs3",
+        "status": 1,
+        "version": 4,
+        "name": "IdlixProvider",
+        "internalName": "IdlixProvider",
+        "authors": [
+            "Miku"
+        ],
+        "description": "Idlix \u2014 Streaming Movie and TV Series",
+        "fileSize": 49858,
+        "repositoryUrl": "https://github.com/Brewok1211/Stream_hub",
+        "language": "id",
+        "tvTypes": [
+            "TvSeries",
+            "Movie",
+            "AsianDrama"
+        ],
+        "iconUrl": "https://t0.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&url=http://idlixian.com&size=16",
+        "apiVersion": 1,
+        "fileHash": "sha256-60507f68b156fdcc2b88524d87226e0efe1199e2726d93440ed1b3ed0b6d2142",
+        "jarFileSize": 200542,
+        "jarUrl": "https://raw.githubusercontent.com/Brewok1211/Stream_hub/builds/IdlixProvider.jar",
+        "jarHash": "sha256-21a16d732ab5d0ee417429dd8d2234fc41e0f19926ab0426e525c01edd6f6983"
+    }
+]
