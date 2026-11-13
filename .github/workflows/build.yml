@@ -1,8 +1,6 @@
-name: Auto Sync and Build Extensions
+name: Build Cloudstream Extensions
 
 on:
-  schedule:
-    - cron: '*/30 * * * *'
   workflow_dispatch:
   push:
     branches:
@@ -14,7 +12,7 @@ permissions:
   contents: write
 
 jobs:
-  sync-and-build:
+  build:
     runs-on: ubuntu-latest
 
     steps:
@@ -22,7 +20,6 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: src
-          fetch-depth: 0
 
       - name: Checkout builds branch
         uses: actions/checkout@v4
@@ -30,61 +27,7 @@ jobs:
           ref: builds
           path: builds
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.x'
-
-      - name: Run sync script
-        run: |
-          cd src
-          python sync_extensions.py
-
-      - name: Check for source changes
-        id: source-changes
-        run: |
-          cd src
-          git config --local user.email "actions@github.com"
-          git config --local user.name "GitHub Actions"
-          
-          # Get list of changed plugins before staging
-          changed_plugins=$(git status --porcelain | awk '{print $2}' | cut -d'/' -f1 | grep -v -E "^\." | grep -v -E "^(sync_extensions\.py|phisher_plugins\.txt|phisher_commit\.txt|build\.gradle\.kts|settings\.gradle\.kts|gradle\.properties|gradlew|gradlew\.bat|repo\.json|README\.md)$" | sort -u | tr '\n' ',' | sed 's/,$//')
-          
-          # Check if Phisher commit in src differs from the one recorded in builds branch
-          src_phisher=$(cat phisher_commit.txt 2>/dev/null | tr -d '[:space:]' || echo "")
-          build_phisher=$(cat $GITHUB_WORKSPACE/builds/phisher_commit.txt 2>/dev/null | tr -d '[:space:]' || echo "")
-          phisher_outdated=false
-          if [ -n "$src_phisher" ] && [ "$src_phisher" != "$build_phisher" ]; then
-            echo "Builds branch phisher commit ($build_phisher) differs from src ($src_phisher). Build required."
-            phisher_outdated=true
-          fi
-          
-          git add -A
-          
-          if [ -n "$(git status --porcelain)" ]; then
-            echo "Changes detected in source files."
-            
-            if [ -n "$changed_plugins" ]; then
-              commit_msg="Auto-sync: Update plugins ($changed_plugins)"
-            else
-              commit_msg="Auto-sync: Update core repository configuration"
-            fi
-            
-            git commit -m "$commit_msg"
-            git push origin main
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "plugins=$changed_plugins" >> $GITHUB_OUTPUT
-          elif [ "$phisher_outdated" = "true" ]; then
-            echo "No source changes in main, but builds branch is out of date."
-            echo "changed=true" >> $GITHUB_OUTPUT
-            echo "plugins=" >> $GITHUB_OUTPUT
-          else
-            echo "No source changes detected and builds branch is up to date."
-            echo "changed=false" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Setup JDK 21
-        if: steps.source-changes.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+      - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -92,120 +35,34 @@ jobs:
           cache: 'gradle'
 
       - name: Setup Android SDK
-        if: steps.source-changes.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         uses: android-actions/setup-android@v4
 
-      - name: Create local.properties with secrets
-        if: steps.source-changes.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
-        env:
-          CRUNCHYROLL_BASIC_TOKEN: ${{ secrets.CRUNCHYROLL_BASIC_TOKEN }}
-          CRUNCHYROLL_REFRESH_TOKEN: ${{ secrets.CRUNCHYROLL_REFRESH_TOKEN }}
-          ANICHI_API: ${{ secrets.ANICHI_API }}
-          ANICHI_SERVER: ${{ secrets.ANICHI_SERVER }}
-          ANICHI_ENDPOINT: ${{ secrets.ANICHI_ENDPOINT }}
-          ANICHI_APP: ${{ secrets.ANICHI_APP }}
-          ZSHOW_API: ${{ secrets.ZSHOW_API }}
-          SFMOVIES_API: ${{ secrets.SFMOVIES_API }}
-          CINEMATV_API: ${{ secrets.CINEMATV_API }}
-          GHOSTX_API: ${{ secrets.GHOSTX_API }}
-          SUPERSTREAM_FIRST_API: ${{ secrets.SUPERSTREAM_FIRST_API }}
-          SUPERSTREAM_SECOND_API: ${{ secrets.SUPERSTREAM_SECOND_API }}
-          SUPERSTREAM_THIRD_API: ${{ secrets.SUPERSTREAM_THIRD_API }}
-          SUPERSTREAM_FOURTH_API: ${{ secrets.SUPERSTREAM_FOURTH_API }}
+      - name: Prepare local.properties
         run: |
           cd src
-          touch local.properties
-          echo TMDB_API=${{ secrets.TMDB_API }} >> local.properties
-          echo DUMP_API=${{ secrets.DUMP_API }} >> local.properties
-          echo DUMP_KEY=${{ secrets.DUMP_KEY }} >> local.properties
-          echo FanCode_API=${{ secrets.FanCode_API }} >> local.properties
-          echo FlixHQAPI=${{ secrets.FlixHQAPI }} >> local.properties
-          
-          echo CRUNCHYROLL_BASIC_TOKEN=$CRUNCHYROLL_BASIC_TOKEN >> local.properties
-          echo CRUNCHYROLL_REFRESH_TOKEN=$CRUNCHYROLL_REFRESH_TOKEN >> local.properties
-          
-          echo ANICHI_API=$ANICHI_API >> local.properties
-          echo ANICHI_SERVER=$ANICHI_SERVER >> local.properties
-          echo ANICHI_ENDPOINT=$ANICHI_ENDPOINT >> local.properties
-          echo ANICHI_APP=$ANICHI_APP >> local.properties
-          
-          echo ZSHOW_API=$ZSHOW_API >> local.properties
-          echo SFMOVIES_API=$SFMOVIES_API >> local.properties
-          echo CINEMATV_API=$CINEMATV_API >> local.properties
-          echo GHOSTX_API=$GHOSTX_API >> local.properties
-          
-          echo SUPERSTREAM_FIRST_API=$SUPERSTREAM_FIRST_API >> local.properties
-          echo SUPERSTREAM_SECOND_API=$SUPERSTREAM_SECOND_API >> local.properties
-          echo SUPERSTREAM_THIRD_API=$SUPERSTREAM_THIRD_API >> local.properties
-          echo SUPERSTREAM_FOURTH_API=$SUPERSTREAM_FOURTH_API >> local.properties
+          cp -n local.properties.example local.properties || touch local.properties
 
       - name: Build Plugins
-        if: steps.source-changes.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
         run: |
           cd src
           chmod +x gradlew
-          
-          # Debug: run compilation for UltimaBackup and log it
-          ./gradlew :UltimaBackup:make > $GITHUB_WORKSPACE/builds/ultima_build.log 2>&1 || true
-          
-          # Run custom build python script:
-          python build_plugins.py $GITHUB_WORKSPACE/builds
-          
-      - name: Push builds and Purge CDN Cache
-        if: steps.source-changes.outputs.changed == 'true' || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+          ./gradlew make makePluginsJson
+
+      - name: Collect and Push Builds
         run: |
-          cd $GITHUB_WORKSPACE/builds
+          mkdir -p "$GITHUB_WORKSPACE/builds"
+          find "$GITHUB_WORKSPACE/src" -path "*/build/*" -name "plugins.json" -exec cp {} "$GITHUB_WORKSPACE/builds/" \;
+          find "$GITHUB_WORKSPACE/src" -path "*/build/*.cs3" -exec cp {} "$GITHUB_WORKSPACE/builds/" \;
+
+          cd "$GITHUB_WORKSPACE/builds"
           git config --local user.email "actions@github.com"
           git config --local user.name "GitHub Actions"
-          
-          # Ganti @builds dengan @build-${{ github.run_number }} pada manifest agar CDN jsDelivr selalu mengunduh biner segar tanpa cache
-          sed -i "s|@builds|@build-${{ github.run_number }}|g" plugins-jsdelivr.json
-          sed -i "s|@builds|@build-${{ github.run_number }}|g" repo-jsdelivr.json
-          
           git add -A
-          
-          plugins_list="${{ steps.source-changes.outputs.plugins }}"
-          if [ -n "$plugins_list" ]; then
-            commit_msg="Auto-build: Update plugins ($plugins_list) (build-${{ github.run_number }})"
+
+          if ! git diff --cached --quiet; then
+            git commit -m "Build extensions (run #${{ github.run_number }})"
+            git push origin HEAD:builds --force
           else
-            commit_msg="Auto-build: Update plugins (build-${{ github.run_number }})"
+            echo "No changes in build outputs."
           fi
           
-          git commit -m "$commit_msg" || true
-          
-          # Force push ke branch builds untuk menghindari konflik merge akibat perubahan riwayat (diverged history)
-          git push origin HEAD:builds --force
-          
-          # Buat dan push git tag untuk versi rilis ini (force push tag agar aman)
-          git tag "build-${{ github.run_number }}" --force
-          git push origin "build-${{ github.run_number }}" --force
-          
-          # Hubungkan ke remote dan bersihkan tag lama (sisakan 5 terbaru)
-          git fetch --tags
-          OLD_TAGS=$(git tag -l "build-*" --sort=creatordate | head -n -5)
-          for tag in $OLD_TAGS; do
-            echo "Deleting old tag: $tag"
-            git tag -d "$tag" || true
-            git push origin :refs/tags/$tag || true
-          done
-
-          
-          # Purge semua file manifest/index di branch builds
-          echo "Purging manifest files..."
-          curl -s "https://purge.jsdelivr.net/gh/xr3ed/xr3ed-Repo@builds/repo.json"
-          curl -s "https://purge.jsdelivr.net/gh/xr3ed/xr3ed-Repo@builds/repo-jsdelivr.json"
-          curl -s "https://purge.jsdelivr.net/gh/xr3ed/xr3ed-Repo@builds/xr3ed-jsdelivr.json"
-          curl -s "https://purge.jsdelivr.net/gh/xr3ed/xr3ed-Repo@builds/plugins.json"
-          curl -s "https://purge.jsdelivr.net/gh/xr3ed/xr3ed-Repo@builds/plugins-jsdelivr.json"
-          echo ""
-          
-          # Purge SEMUA file cs3 yang ada di builds branch agar tidak ada stale cache
-          echo "Purging all cs3 files..."
-          for cs3file in $(git ls-files "*.cs3"); do
-            clean=$(basename "$cs3file")
-            echo "Purging: $clean"
-            curl -s "https://purge.jsdelivr.net/gh/xr3ed/xr3ed-Repo@builds/$clean"
-            echo ""
-          done
-          
-          echo "All purges completed!"
