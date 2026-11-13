@@ -479,11 +479,19 @@ class IdlixProvider : MainAPI() {
 
         val streamUrl = resolveUrl(rawStreamUrl)
 
+        val videoHeaders = mapOf(
+            "User-Agent" to defaultUserAgent,
+            "Referer" to "$mainUrl/",
+            "Origin" to mainUrl,
+            "Accept" to "*/*"
+        )
+
         try {
             generateM3u8(
-                name,
-                streamUrl,
-                mainUrl
+                source = name,
+                streamUrl = streamUrl,
+                referer = "$mainUrl/",
+                headers = videoHeaders
             ).forEach(callback)
         } catch (e: Exception) {
             throw ErrorLoadingException("M3U8_GENERATE_ERR (${e.message}): $streamUrl")
